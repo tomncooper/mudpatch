@@ -1,0 +1,17 @@
+- title: patch-1
+  description: The first patch
+  upstreamPR: https://bithub.com/org/repo/1
+  downstreamBranch: patch-1-1.0.0
+  fixedVersion: 1.1.0
+- title: patch-2
+  description: The second patch
+  upstreamPR: https://bithub.com/org/repo/2
+  downstreamBranch: patch-2-1.0.0
+  fixedVersion: 1.1.0
+- title: patch-3
+  description: The third patch
+  upstreamPR: https://bithub.com/org/repo/3
+  downstreamBranch: patch-3-1.0.0
+  fixedVersion: 1.1.1
+
+ 

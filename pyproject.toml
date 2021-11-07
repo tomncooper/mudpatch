@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "mudpatch"
+version = "0.1.0"
+description = "Managing Up and Downstream patches"
+authors = ["Thomas Cooper <code@tomcooper.dev>"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+GitPython = "^3.1.24"
+PyYAML = "^6.0"
+
+[tool.poetry.dev-dependencies]
+ipython = "^7.29.0"
+mypy = "^0.910"
+pylint = "^2.11.1"
+black = "^21.10b0"
+types-PyYAML = "^6.0.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
