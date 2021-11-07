@@ -3,6 +3,9 @@ name = "mudpatch"
 version = "0.1.0"
 description = "Managing Up and Downstream patches"
 authors = ["Thomas Cooper <code@tomcooper.dev>"]
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/tomncooper/mudpatch"
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -19,3 +22,6 @@ types-PyYAML = "^6.0.0"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+mud = "mudpatch.mud:run"

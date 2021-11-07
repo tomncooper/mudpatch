@@ -4,17 +4,26 @@ A tool for managing a collection of downstream patches applied to an upstream ta
 
 ## Installation
 
-For development, `poetry` can be used to create a virtual environment:
+`poetry` is used to build and develop the `mud` tool:
 
 ```bash
 poetry install
 ```
 
+Will set up a virtual environment with the required dependencies. 
 The script can then be run by calling:
 
 ```bash
-poetry run python mud.py --help
+poetry run mud --help
 ```
+
+A distributable wheel or tar can be built using:
+
+```bash
+poetry build
+```
+
+This will build the distributables and place them in the `dist` folder.
 
 ## Patch Configuration
 

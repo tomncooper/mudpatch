@@ -128,7 +128,7 @@ def get_patch_branches(repo: Repo, patches: List[Patch]) -> List[Tuple[Patch, He
         patch_branch: Optional[Head] = get_head(repo, patch.downstream_branch)
         if not patch_branch:
             # TODO: Check if the branch is available in one of the remote repositories
-            raise IndexError(
+            raise RuntimeError(
                 (
                     f"Branch {patch.downstream_branch} for patch {patch.title} "
                     f"does not exist"
@@ -233,35 +233,38 @@ def create_parser() -> ArgumentParser:
 
     return parser
 
+def run():
 
-if __name__ == "__main__":
-
-    PARSER: ArgumentParser = create_parser()
-    ARGS: Namespace = PARSER.parse_args()
+    parser: ArgumentParser = create_parser()
+    args: Namespace = parser.parse_args()
 
     try:
-        REPO: Repo = Repo(ARGS.repo)
+        repo: Repo = Repo(args.repo)
     except NoSuchPathError as nspe:
         print(f"Error: No such repository {nspe}")
         sys.exit(1)
 
-    PATCHES_PATH: Path = Path(ARGS.patches)
-    print(f"Loading patches from configuration file: {PATCHES_PATH.absolute()}")
+    patches_path: Path = Path(args.patches)
+    print(f"Loading patches from configuration file: {patches_path.absolute()}")
     try:
-        PATCH_BRANCHES: List[Tuple[Patch, Head]] = get_patch_branches(
-            REPO, get_patches(PATCHES_PATH)
+        patch_branches: List[Tuple[Patch, Head]] = get_patch_branches(
+            repo, get_patches(patches_path)
         )
     except RuntimeError as err:
         print(f"Error: {err}")
         sys.exit(1)
 
-    print(f"Creating new branch {ARGS.output} based on {ARGS.base}")
+    print(f"Creating new branch {args.output} based on {args.base}")
     try:
-        OUTPUT_BRANCH: Head = create_output_branch(REPO, ARGS.base, ARGS.output)
+        output_branch: Head = create_output_branch(repo, args.base, args.output)
     except RuntimeError as err:
         print(f"Error: {err}")
         sys.exit(1)
 
     merge_patches_into_output(
-        REPO, OUTPUT_BRANCH, PATCH_BRANCHES, debug=ARGS.debug, clean_up=ARGS.cleanup
+        repo, output_branch, patch_branches, debug=args.debug, clean_up=args.cleanup
     )
+
+if __name__ == "__main__":
+
+    run()
