@@ -20,6 +20,7 @@ pip install mudpatch-0.1.0-py3-none-any.whl
 ```bash
 poetry install
 ```
+
 Will set up a virtual environment with the required dependencies. 
 The script can then be run by calling:
 
