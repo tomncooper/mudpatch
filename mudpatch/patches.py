@@ -1,8 +1,12 @@
+import logging
+
 from typing import List, Dict
 from pathlib import Path
 from dataclasses import dataclass
 
 import yaml
+
+LOG: logging.Logger = logging.getLogger(__name__)
 
 @dataclass
 class Patch:
@@ -39,7 +43,7 @@ def to_patch(patch_dict: Dict[str, str]) -> Patch:
     Returns
     -------
     Patch
-        An Patch instance containg the data from the supplied dict. 
+        An Patch instance containing the data from the supplied dict. 
     """
 
     return Patch(
@@ -65,6 +69,8 @@ def get_patches(patches_path: Path) -> List[Patch]:
         A list of Patch instances represeting the patches defined in the supplied
         patches file.
     """
+    
+    LOG.info(f"Loading patches from configuration file: {patches_path.absolute()}")
 
     with open(patches_path, "r") as path_file:
         patches_yaml = yaml.load(path_file, Loader=yaml.FullLoader)

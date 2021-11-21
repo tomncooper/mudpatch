@@ -1,3 +1,5 @@
+import logging
+
 from typing import List, Optional, Union, Tuple
 
 from git import Repo
@@ -5,16 +7,18 @@ from git.exc import GitCommandError
 from git.refs.remote import RemoteReference
 from git.refs.tag import TagReference
 from git.refs.head import Head
-from mudpatch.errors import BranchExistsError, MudPatchError, MultipleRemoteReferences, UnknownBranchError, UnknownReferenceError
+from mudpatch.errors import (
+    BranchExistsError,
+    MultipleRemoteReferences,
+    UnknownBranchError,
+    UnknownReferenceError)
 
 from mudpatch.patches import Patch
 
-# A list of options for the primary branch of a repository, the order dictates the order these options
-# will be tried the first one found will be the one used as the fallback branch in case of clean up
-PRIMARY_BRANCH_NAME_OPTIONS: List[str] = ["main", "master", "trunk"]
+LOG: logging.Logger = logging.getLogger(__name__)
 
 def get_local_head(repo: Repo, head_name: str) -> Optional[Head]:
-    """ Searches for the specified head (branch) in the supplied repository instance.  
+    """ Searches for the specified head (branch) in the supplied repository instance.
     If the head cannot be found the method will return None.
 
     Parameters
@@ -23,7 +27,7 @@ def get_local_head(repo: Repo, head_name: str) -> Optional[Head]:
         The Repo instance represeting the git repository we are working on.
     head_name : str
         The name of the head (branch) that will be searched for.
-        
+   
     Returns
     -------
     Head
@@ -38,7 +42,7 @@ def get_local_head(repo: Repo, head_name: str) -> Optional[Head]:
 
 
 def get_fallback_head(
-    repo: Repo, fallback_options: List[str] = PRIMARY_BRANCH_NAME_OPTIONS
+    repo: Repo, fallback_options: List[str] = ["main", "master", "trunk"]
 ) -> Head:
     """ Find the fallback (primary) branch in the supplied Repo instance using the 
     supplied list of primary branch name options. The first matching branch found in 
@@ -49,7 +53,8 @@ def get_fallback_head(
     repo : Repo
         The Repo instance representing the git repository we are working on.
     fallback_options : list
-        A list of branch name strings to be searched for as fallback branches.
+        A list of branch name strings to be searched for as fallback branches. The default 
+        list is 'main', 'master' and 'trunk.
 
     Returns:
     Head
@@ -65,8 +70,10 @@ def get_fallback_head(
             return fallback_head
 
     fallback_head = repo.heads[0]
-    print((f"Unable to find one of the defined fallback branches {fallback_options} in this repo. " 
-           f"Falling back to the first branch in the head list: {fallback_head}"))
+    LOG.warning(
+        ("Unable to find one of the defined fallback branches %s in this repo. "
+        "Falling back to the first branch in the head list: %s"), fallback_options, fallback_head
+    )
     return fallback_head
 
 
@@ -84,7 +91,8 @@ def get_tag(repo: Repo, tag_name: str) -> Optional[TagReference]:
     Returns
     -------
     TagReference
-        The TagReference instance for the supplied tag name. If that cannot be found, None is returned.
+        The TagReference instance for the supplied tag name. If that cannot be found, 
+        None is returned.
     """
 
     for tag in repo.tags:
@@ -124,21 +132,19 @@ def get_local_base_object(repo: Repo, base: str) -> Union[Head, TagReference]:
         return base_branch
 
     if not base_tag:
-        raise UnknownReferenceError(
-            (
+        err_msg: str = (
                 f"The base reference {base} is not present as a branch or tag in the "
                 f"{repo.working_dir} repository"
             )
-        )
+        LOG.error(err_msg)
+        raise UnknownReferenceError(err_msg)
 
     return base_tag
 
 
 def get_remote_ref(repo: Repo, ref_name: str, remote: Optional[str]=None) -> Optional[Head]:
     """ Find the reference corresponding to the supplied reference name in the remote repositories. If the 
-    reference is found then a new branch based on it will be created and the corresponding Head instance
-    returned. If the reference cannot be found in the remote repositories then None will be returned. The 
-    search can optionally be limited to a single remote repository.
+    reference is found then a new branch based on it will be created and the corresponding Head instance returned. If the reference cannot be found in the remote repositories then None will be returned. The search can optionally be limited to a single remote repository.
 
     Parameters
     ----------
@@ -163,13 +169,13 @@ def get_remote_ref(repo: Repo, ref_name: str, remote: Optional[str]=None) -> Opt
     """
         
     if not repo.remotes:
-        print(f"Unable to find reference '{ref_name}' in remote repositories as none are configured")
+        LOG.warning("Unable to find reference '%s' in remote repositories as none are configured", ref_name)
         return None
 
     found_ref: Optional[RemoteReference] = None
 
     if remote:
-        print(f"Searching for reference '{ref_name}' in remote repository {remote}")
+        LOG.info("Searching for reference '%s' in remote repository %s", ref_name, remote)
         for remote_repo in repo.remotes:
             if remote_repo.name == remote:
                 for remote_ref in remote_repo.refs:
@@ -178,7 +184,7 @@ def get_remote_ref(repo: Repo, ref_name: str, remote: Optional[str]=None) -> Opt
                         break
                 break
     else:
-        print(f"Searching all remote repositories for reference '{ref_name}'")
+        LOG.info("Searching all remote repositories for reference '%s'", ref_name)
         found_refs: List[RemoteReference] = []
 
         for remote_repo in repo.remotes:
@@ -187,16 +193,17 @@ def get_remote_ref(repo: Repo, ref_name: str, remote: Optional[str]=None) -> Opt
                     found_refs.append(remote_ref)
 
         if len(found_refs) > 1:
-            raise MultipleRemoteReferences(
-                f"Found multiple references to {ref_name} in the configured remote repositories: {found_refs}")
+            err_msg: str = f"Found multiple references to {ref_name} in the configured remote repositories: {found_refs}"
+            LOG.error(err_msg)
+            raise MultipleRemoteReferences(err_msg)
         elif len(found_refs) == 1:
             found_ref = found_refs[0]
     
     if not found_ref:
         return None
 
-    print(f"Found reference matching '{ref_name}' in remote {found_ref.name.split('/')[0]}")
-    print(f"Creating local branch for {found_ref.name}")
+    LOG.info("Found reference matching '%s' in remote %s", ref_name, found_ref.name.split('/')[0])
+    LOG.info("Creating local branch for %s", found_ref.name)
     found_head = repo.create_head(ref_name, found_ref)
     found_head.set_tracking_branch(found_ref)
 
@@ -227,17 +234,19 @@ def create_output_branch(repo: Repo, base: str, output: str) -> Head:
         If the output branch already exists or the base reference does not exist.
     """
 
+    LOG.info("Creating new branch %s based on %s", output, base)
+
     base_object: Union[Head, TagReference] = get_local_base_object(repo, base)
 
     # Check if the output branch already exists
     existing_output_branch: Optional[Head] = get_local_head(repo, output)
     if existing_output_branch:
-        raise BranchExistsError(
-            (
-                f"The output branch {output} is already present in the target "
-                f"repository. Either remove this branch or choose a new output name."
-            )
+        err_msg: str = (
+            f"The output branch {output} is already present in the target "
+            f"repository. Either remove this branch or choose a new output name."
         )
+        LOG.error(err_msg)
+        raise BranchExistsError(err_msg)
     else:
         return repo.create_head(output, commit=base_object.commit)
 
@@ -270,15 +279,18 @@ def get_patch_branches(repo: Repo, patches: List[Patch]) -> List[Tuple[Patch, He
     for patch in patches:
         patch_branch: Optional[Head] = get_local_head(repo, patch.downstream_branch)
         if not patch_branch:
-            print(f"Unable to find patch branch '{patch.downstream_branch}' in the local repository. Searching the remote repositories.")
+            LOG.info(
+                "Unable to find patch branch '%s' in the local repository. Searching the remote repositories.", 
+                patch.downstream_branch
+            )
             patch_branch = get_remote_ref(repo, patch.downstream_branch)
             if not patch_branch:
-                raise UnknownBranchError(
-                    (
-                        f"Branch {patch.downstream_branch} for patch {patch.title} "
-                        f"does not exist"
-                    )
+                err_msg: str = (
+                    f"Branch {patch.downstream_branch} for patch {patch.title} "
+                    f"does not exist"
                 )
+                LOG.error(err_msg)
+                raise UnknownBranchError(err_msg)
 
         patch_branches.append((patch, patch_branch))
 
@@ -289,8 +301,7 @@ def merge_patches_into_output(
     output_branch: Head,
     patch_branches: List[Tuple[Patch, Head]],
     clean_up: bool = False,
-    debug: bool = False,
-) -> None:
+) -> bool:
     """ Merges the branches in the supplied patch branches list into the supplied output branch. If the cleanup flag is set 
     then any resulting errors in the merge process will be cleaned up by aborting the merge, moving to the primary fallback
     branch (eg main) and deleting the output branch. If cleanup is false (default) the new output branch will be left in 
@@ -309,39 +320,39 @@ def merge_patches_into_output(
         If cleanup is set to True then any resulting errors in the merge process will be cleaned up by aborting the merge, 
         moving to the primary fallback branch (eg main) and deleting the output branch. If cleanup is false (default) the new 
         output branch will be left in merging state.
-    debug : bool
-        Flag indicating if debug messages should be printed.
+
+    Returns
+    -------
+    bool
+        True if no errors were encountered, false otherwise.
     """
 
-    print(f"Checking out the output branch: {output_branch.name}")
+    LOG.info("Checking out the output branch: %s", output_branch.name)
     try:
         output_branch.checkout()
     except GitCommandError as gcerr:
-        print(f"Error: checkout of {output_branch.name} failed")
-        print("-------------------------------------------")
-        print(gcerr)
-        print("-------------------------------------------")
-        return None
+        LOG.error("Checkout of %s failed", output_branch.name)
+        LOG.error(gcerr)
+        return False
 
     for _, patch_branch in patch_branches:
-        print(f"Merging {patch_branch.name}")
+        LOG.info("Merging %s", patch_branch.name)
         try:
             merge_text: str = repo.git.merge(patch_branch)
         except GitCommandError as gcerr:
-            print(f"Error: merge of {patch_branch.name} failed")
-            print("-------------------------------------------")
-            print(gcerr)
-            print("-------------------------------------------")
+            LOG.error("Merge of %s failed", patch_branch.name)
+            LOG.error(gcerr)
             if clean_up:
-                print("Cleaning up:")
-                print("Aborting merge")
+                LOG.info("Cleaning up:")
+                LOG.info("Aborting merge")
                 repo.git.merge(abort=True)
                 fallback_head: Head = get_fallback_head(repo)
-                print(f"Falling back to branch: {fallback_head.name}")
+                LOG.info("Falling back to branch: %s", fallback_head.name)
                 fallback_head.checkout()
-                print(f"Deleting output branch: {output_branch.name}")
+                LOG.info("Deleting output branch: %s", output_branch.name)
                 repo.git.branch("-D", output_branch)
-            return None
+            return False
         else:
-            if debug:
-                print(merge_text)
+            LOG.debug(merge_text)
+    
+    return True
