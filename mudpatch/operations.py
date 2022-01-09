@@ -1,24 +1,32 @@
+"""This module contains methods which perform the patch merging operations."""
 import logging
 
 from typing import List, Optional, Union, Tuple
+from pathlib import Path
 
 from git import Repo
-from git.exc import GitCommandError
+from git.exc import CommandError
 from git.refs.remote import RemoteReference
 from git.refs.tag import TagReference
 from git.refs.head import Head
 from mudpatch.errors import (
+    CheckoutError,
+    CommitError,
     BranchExistsError,
+    MudPatchError,
     MultipleRemoteReferences,
     UnknownBranchError,
-    UnknownReferenceError)
+    UnknownReferenceError,
+)
 
-from mudpatch.patches import Patch
+from mudpatch.patches import Patch, write_patches_to_file
 
 LOG: logging.Logger = logging.getLogger(__name__)
+DEFAULT_PATCH_CONFIG_FILENAME = "patches-config.yaml"
+
 
 def get_local_head(repo: Repo, head_name: str) -> Optional[Head]:
-    """ Searches for the specified head (branch) in the supplied repository instance.
+    """Searches for the specified head (branch) in the supplied repository instance.
     If the head cannot be found the method will return None.
 
     Parameters
@@ -27,7 +35,7 @@ def get_local_head(repo: Repo, head_name: str) -> Optional[Head]:
         The Repo instance represeting the git repository we are working on.
     head_name : str
         The name of the head (branch) that will be searched for.
-   
+
     Returns
     -------
     Head
@@ -44,22 +52,22 @@ def get_local_head(repo: Repo, head_name: str) -> Optional[Head]:
 def get_fallback_head(
     repo: Repo, fallback_options: List[str] = ["main", "master", "trunk"]
 ) -> Head:
-    """ Find the fallback (primary) branch in the supplied Repo instance using the 
-    supplied list of primary branch name options. The first matching branch found in 
+    """Find the fallback (primary) branch in the supplied Repo instance using the
+    supplied list of primary branch name options. The first matching branch found in
     the list will be returned.
-    
+
     Parameters
     ----------
     repo : Repo
         The Repo instance representing the git repository we are working on.
     fallback_options : list
-        A list of branch name strings to be searched for as fallback branches. The default 
+        A list of branch name strings to be searched for as fallback branches. The default
         list is 'main', 'master' and 'trunk.
 
     Returns:
     Head
-        A head instance for the first branch found in the supplied fallback_options list. 
-        If none of the branch in the fallback list can be found the 1st head in the 
+        A head instance for the first branch found in the supplied fallback_options list.
+        If none of the branch in the fallback list can be found the 1st head in the
         head (branches) list will be returned.
     """
 
@@ -71,27 +79,31 @@ def get_fallback_head(
 
     fallback_head = repo.heads[0]
     LOG.warning(
-        ("Unable to find one of the defined fallback branches %s in this repo. "
-        "Falling back to the first branch in the head list: %s"), fallback_options, fallback_head
+        (
+            "Unable to find one of the defined fallback branches %s in this repo. "
+            "Falling back to the first branch in the head list: %s"
+        ),
+        fallback_options,
+        fallback_head,
     )
     return fallback_head
 
 
 def get_tag(repo: Repo, tag_name: str) -> Optional[TagReference]:
-    """ Gets the specified tag reference from the supplied Repo instance. If the tag cannot be found 
+    """Gets the specified tag reference from the supplied Repo instance. If the tag cannot be found
     then None is returned.
-    
+
     Parameters
     ----------
     repo : Repo
         The Repo instance representing the git repository we are working on.
     tag_name : str
         The name of the tag to be searched for.
-    
+
     Returns
     -------
     TagReference
-        The TagReference instance for the supplied tag name. If that cannot be found, 
+        The TagReference instance for the supplied tag name. If that cannot be found,
         None is returned.
     """
 
@@ -103,7 +115,7 @@ def get_tag(repo: Repo, tag_name: str) -> Optional[TagReference]:
 
 
 def get_local_base_object(repo: Repo, base: str) -> Union[Head, TagReference]:
-    """ Find the supplied git reference object (head or tag) corresponding to the supplied base string.
+    """Find the supplied git reference object (head or tag) corresponding to the supplied base string.
 
     Parameters
     ----------
@@ -116,7 +128,7 @@ def get_local_base_object(repo: Repo, base: str) -> Union[Head, TagReference]:
     ------
     Head or TagReference
         Depending on what the base object is either a Head (branch) or TagReference (tag) will be returned.
-    
+
     Throws
     ------
     UnknownReferenceError
@@ -133,17 +145,19 @@ def get_local_base_object(repo: Repo, base: str) -> Union[Head, TagReference]:
 
     if not base_tag:
         err_msg: str = (
-                f"The base reference {base} is not present as a branch or tag in the "
-                f"{repo.working_dir} repository"
-            )
+            f"The base reference {base} is not present as a branch or tag in the "
+            f"{repo.working_dir} repository"
+        )
         LOG.error(err_msg)
         raise UnknownReferenceError(err_msg)
 
     return base_tag
 
 
-def get_remote_ref(repo: Repo, ref_name: str, remote: Optional[str]=None) -> Optional[Head]:
-    """ Find the reference corresponding to the supplied reference name in the remote repositories. If the 
+def get_remote_ref(
+    repo: Repo, ref_name: str, remote: Optional[str] = None
+) -> Optional[Head]:
+    """Find the reference corresponding to the supplied reference name in the remote repositories. If the
     reference is found then a new branch based on it will be created and the corresponding Head instance returned. If the reference cannot be found in the remote repositories then None will be returned. The search can optionally be limited to a single remote repository.
 
     Parameters
@@ -153,29 +167,34 @@ def get_remote_ref(repo: Repo, ref_name: str, remote: Optional[str]=None) -> Opt
     ref_name : str
         The name of the git reference we are searching for.
     remote : str
-        Allows a specific remote repository to be searched. If this is not supplied then all configured remote 
+        Allows a specific remote repository to be searched. If this is not supplied then all configured remote
         repositories will be searched.
 
     Returns
     -------
     Head or None
-        If a reference can be found in the configured remote repositories a new branch will be created from 
+        If a reference can be found in the configured remote repositories a new branch will be created from
         that reference and the Head instance returned. If no reference can be found then None will be returned.
-    
+
     Throws
     ------
     MultipleRemoteReferences
         If the reference exists in multiple remote repositories.
     """
-        
+
     if not repo.remotes:
-        LOG.warning("Unable to find reference '%s' in remote repositories as none are configured", ref_name)
+        LOG.warning(
+            "Unable to find reference '%s' in remote repositories as none are configured",
+            ref_name,
+        )
         return None
 
     found_ref: Optional[RemoteReference] = None
 
     if remote:
-        LOG.info("Searching for reference '%s' in remote repository %s", ref_name, remote)
+        LOG.info(
+            "Searching for reference '%s' in remote repository %s", ref_name, remote
+        )
         for remote_repo in repo.remotes:
             if remote_repo.name == remote:
                 for remote_ref in remote_repo.refs:
@@ -198,11 +217,15 @@ def get_remote_ref(repo: Repo, ref_name: str, remote: Optional[str]=None) -> Opt
             raise MultipleRemoteReferences(err_msg)
         elif len(found_refs) == 1:
             found_ref = found_refs[0]
-    
+
     if not found_ref:
         return None
 
-    LOG.info("Found reference matching '%s' in remote %s", ref_name, found_ref.name.split('/')[0])
+    LOG.info(
+        "Found reference matching '%s' in remote %s",
+        ref_name,
+        found_ref.name.split("/")[0],
+    )
     LOG.info("Creating local branch for %s", found_ref.name)
     found_head = repo.create_head(ref_name, found_ref)
     found_head.set_tracking_branch(found_ref)
@@ -210,10 +233,36 @@ def get_remote_ref(repo: Repo, ref_name: str, remote: Optional[str]=None) -> Opt
     return found_head
 
 
+def checkout_branch(branch: Head) -> None:
+    """Checks out the supplied Head object adding logging and error handling.
+
+    Parameters
+    ----------
+    branch : Head
+        The git head object to be checked out.
+
+    Throws
+    ------
+    CheckoutError
+        If the underlying git checkout command throws a CommandError.
+    """
+
+    LOG.debug("Checking out branch: %s", branch.name)
+    try:
+        branch.checkout()
+    except CommandError as comm_err:
+        checkout_msg: str = f"Checkout of {branch.name} failed"
+        LOG.error(checkout_msg)
+        LOG.error(comm_err)
+        raise CheckoutError(checkout_msg, comm_err) from comm_err
+    else:
+        LOG.debug("Checking out of branch %s was successful", branch.name)
+
+
 def create_output_branch(repo: Repo, base: str, output: str) -> Head:
-    """ Creates a new branch labeled with the supplied output string based on the reference corresponding to the 
-    supplied base string. 
-    
+    """Creates a new branch labeled with the supplied output string based on the reference corresponding to the
+    supplied base string.
+
     Parameters
     ----------
     repo : Repo
@@ -251,26 +300,81 @@ def create_output_branch(repo: Repo, base: str, output: str) -> Head:
         return repo.create_head(output, commit=base_object.commit)
 
 
+def write_patch_config_to_branch(
+    repo: Repo,
+    branch: Head,
+    patches: List[Patch],
+    config_filename: str = DEFAULT_PATCH_CONFIG_FILENAME,
+) -> None:
+    """Writes the supplied list of Patch objects to a yaml file in the supplied repository and
+    commits the file to the branch supplied.
+
+    Parameters
+    ----------
+    repo : Repo
+        The Repo instance representing the git repository we are working on.
+    branch : Head
+        The Head instance representing the branch the patches file should be committed to.
+    patches : List[Patch]
+        The list of Patch instances to be converted to yaml and committed to the specified branch.
+    config_filename : str
+        The name of the yaml file to be saved to the specified branch.
+
+    Throws
+    ------
+    CommitError
+        If the committing of the yaml file fails.
+    """
+
+    if repo.working_dir:
+        output_filepath: Path = Path(repo.working_dir, config_filename)
+    else:
+        msg: str = "The supplied repository has no working directory"
+        LOG.error(msg)
+        raise MudPatchError(msg)
+
+    checkout_branch(branch)
+
+    LOG.info("Commiting patch configuration file to output branch: %s", branch.name)
+
+    write_patches_to_file(patches, output_filepath)
+
+    try:
+        repo.git.add(output_filepath)
+        commit_output: str = repo.git.commit(message="Added patches configuration file")
+        LOG.debug(commit_output)
+    except CommandError as comm_err:
+        err_msg: str = "Encountered error committing the patches configuration file"
+        LOG.error(err_msg)
+        LOG.error(comm_err)
+        raise CommitError(err_msg, comm_err) from comm_err
+    else:
+        LOG.info(
+            "Successfully committed patches configuration file to branch: %s",
+            branch.name,
+        )
+
+
 def get_patch_branches(repo: Repo, patches: List[Patch]) -> List[Tuple[Patch, Head]]:
-    """ Finds the branches in the supplied Repo instance corresponding to the supplied list of Patch instances.
-    
+    """Finds the branches in the supplied Repo instance corresponding to the supplied list of Patch instances.
+
     Parameters
     ----------
     repo : Repo
         The Repo instance representing the git repository we are working on.
     patches : list
         A list of Patch instances.
-    
+
     Returns
     -------
     list
         A list of tuples, each with a Patch instance and the Head instance pointing to a branch in the supplied Repo
-        corresponding to the Patch's "downstream branch" value. 
+        corresponding to the Patch's "downstream branch" value.
 
     Throws
     ------
     UnknownBranchError
-        If any of the "downstream branch" values, of the supplied patches, cannot be found locally in the supplied 
+        If any of the "downstream branch" values, of the supplied patches, cannot be found locally in the supplied
         Repo instance or in any of the configure remote repositories.
     """
 
@@ -280,8 +384,8 @@ def get_patch_branches(repo: Repo, patches: List[Patch]) -> List[Tuple[Patch, He
         patch_branch: Optional[Head] = get_local_head(repo, patch.downstream_branch)
         if not patch_branch:
             LOG.info(
-                "Unable to find patch branch '%s' in the local repository. Searching the remote repositories.", 
-                patch.downstream_branch
+                "Unable to find patch branch '%s' in the local repository. Searching the remote repositories.",
+                patch.downstream_branch,
             )
             patch_branch = get_remote_ref(repo, patch.downstream_branch)
             if not patch_branch:
@@ -296,29 +400,30 @@ def get_patch_branches(repo: Repo, patches: List[Patch]) -> List[Tuple[Patch, He
 
     return patch_branches
 
+
 def merge_patches_into_output(
     repo: Repo,
     output_branch: Head,
     patch_branches: List[Tuple[Patch, Head]],
     clean_up: bool = False,
 ) -> bool:
-    """ Merges the branches in the supplied patch branches list into the supplied output branch. If the cleanup flag is set 
+    """Merges the branches in the supplied patch branches list into the supplied output branch. If the cleanup flag is set
     then any resulting errors in the merge process will be cleaned up by aborting the merge, moving to the primary fallback
-    branch (eg main) and deleting the output branch. If cleanup is false (default) the new output branch will be left in 
+    branch (eg main) and deleting the output branch. If cleanup is false (default) the new output branch will be left in
     merging state.
 
     Parameters
-    ----------  
+    ----------
     repo : Repo
         The Repo instance representing the git repository we are working on.
     output_branch : Head
         The Head instance corresponding to the output branch that the patches will be merged into.
     patch_branches : list
-        A list of tuples, each with a Patch instance and the Head instance pointing to a branch corresponding to the 
-        Patch's "downstream branch" value. 
+        A list of tuples, each with a Patch instance and the Head instance pointing to a branch corresponding to the
+        Patch's "downstream branch" value.
     clean_up : bool
-        If cleanup is set to True then any resulting errors in the merge process will be cleaned up by aborting the merge, 
-        moving to the primary fallback branch (eg main) and deleting the output branch. If cleanup is false (default) the new 
+        If cleanup is set to True then any resulting errors in the merge process will be cleaned up by aborting the merge,
+        moving to the primary fallback branch (eg main) and deleting the output branch. If cleanup is false (default) the new
         output branch will be left in merging state.
 
     Returns
@@ -327,21 +432,20 @@ def merge_patches_into_output(
         True if no errors were encountered, false otherwise.
     """
 
-    LOG.info("Checking out the output branch: %s", output_branch.name)
+    LOG.info("Merging patch branches into output branch %s", output_branch.name)
+
     try:
-        output_branch.checkout()
-    except GitCommandError as gcerr:
-        LOG.error("Checkout of %s failed", output_branch.name)
-        LOG.error(gcerr)
+        checkout_branch(output_branch)
+    except CheckoutError:
         return False
 
     for _, patch_branch in patch_branches:
-        LOG.info("Merging %s", patch_branch.name)
+        LOG.info("Merging branch %s", patch_branch.name)
         try:
             merge_text: str = repo.git.merge(patch_branch)
-        except GitCommandError as gcerr:
+        except CommandError as comm_err:
             LOG.error("Merge of %s failed", patch_branch.name)
-            LOG.error(gcerr)
+            LOG.error(comm_err)
             if clean_up:
                 LOG.info("Cleaning up:")
                 LOG.info("Aborting merge")
@@ -354,5 +458,5 @@ def merge_patches_into_output(
             return False
         else:
             LOG.debug(merge_text)
-    
+
     return True

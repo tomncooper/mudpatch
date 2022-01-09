@@ -13,13 +13,22 @@ from git.exc import NoSuchPathError
 from git.refs.head import Head
 
 from mudpatch.patches import Patch, get_patches
-from mudpatch.operations import get_patch_branches, merge_patches_into_output, create_output_branch
+from mudpatch.operations import (
+    get_patch_branches,
+    merge_patches_into_output,
+    create_output_branch,
+    write_patch_config_to_branch,
+)
 
 VERSION: str = "0.2.0-SNAPSHOT"
 
-def create_parser() -> ArgumentParser:
 
-    parser: ArgumentParser = ArgumentParser(f"Managing Up and Down (MUD) stream patches ({VERSION}")
+def create_parser() -> ArgumentParser:
+    """Creates the Argument Parser instance for the command line interface."""
+
+    parser: ArgumentParser = ArgumentParser(
+        f"Managing Up and Down (MUD) stream patches ({VERSION}"
+    )
 
     parser.add_argument(
         "--repo", "-r", required=True, help="The path to the base repository."
@@ -68,7 +77,21 @@ def create_parser() -> ArgumentParser:
 
     return parser
 
-def setup_logger(debug: bool=False) -> logging.Logger:
+
+def setup_logger(debug: bool = False) -> logging.Logger:
+    """Creates a pre-configured Logger instance.
+
+    Parameters
+    ----------
+    debug : bool
+        If True, the returned logger will be set to DEBUG level and formatted
+        to include additional information in the logging output.
+
+    Returns
+    -------
+    logging.Logger
+        A configured Logger instance.
+    """
 
     top_log: logging.Logger = logging.getLogger("mudpatch")
 
@@ -82,7 +105,7 @@ def setup_logger(debug: bool=False) -> logging.Logger:
         style = "{"
     else:
         level = logging.INFO
-        fmt = "{asctime} | {name} | {levelname} | {message}"
+        fmt = "{asctime} | {levelname} | {message}"
         style = "{"
 
     formatter: logging.Formatter = logging.Formatter(fmt, style=style)
@@ -97,7 +120,7 @@ def setup_logger(debug: bool=False) -> logging.Logger:
 
 
 def run():
-    """ Main run method for the mud tool"""
+    """Main run method for the mud tool"""
 
     parser: ArgumentParser = create_parser()
     args: Namespace = parser.parse_args()
@@ -113,10 +136,10 @@ def run():
         sys.exit(1)
 
     patches_path: Path = Path(args.patches)
+    patches: List[Patch] = get_patches(patches_path)
+
     try:
-        patch_branches: List[Tuple[Patch, Head]] = get_patch_branches(
-            repo, get_patches(patches_path)
-        )
+        patch_branches: List[Tuple[Patch, Head]] = get_patch_branches(repo, patches)
     except RuntimeError as err:
         top_log.error("%s", err)
         sys.exit(1)
@@ -127,12 +150,19 @@ def run():
         top_log.error("%s", err)
         sys.exit(1)
 
+    try:
+        write_patch_config_to_branch(repo, output_branch, patches)
+    except RuntimeError as err:
+        top_log.error("%s", err)
+        sys.exit(1)
+
     result: bool = merge_patches_into_output(
         repo, output_branch, patch_branches, clean_up=args.cleanup
     )
 
     if result:
         top_log.info("Merging of patches has completed successfully")
+
 
 if __name__ == "__main__":
 
