@@ -15,9 +15,11 @@ from git.refs.head import Head
 from mudpatch.patches import Patch, get_patches
 from mudpatch.operations import get_patch_branches, merge_patches_into_output, create_output_branch
 
+VERSION: str = "0.2.0-SNAPSHOT"
+
 def create_parser() -> ArgumentParser:
 
-    parser: ArgumentParser = ArgumentParser("Managing Up and Down (MUD) stream patches")
+    parser: ArgumentParser = ArgumentParser(f"Managing Up and Down (MUD) stream patches ({VERSION}")
 
     parser.add_argument(
         "--repo", "-r", required=True, help="The path to the base repository."
@@ -101,6 +103,8 @@ def run():
     args: Namespace = parser.parse_args()
 
     top_log: logging.Logger = setup_logger(args.debug)
+
+    top_log.info("Staring MUDpatch tool (%s)", VERSION)
 
     try:
         repo: Repo = Repo(args.repo)
