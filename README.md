@@ -79,16 +79,18 @@ This should be the name of the branch, within the target repository, that contai
 
 ### Performing a mudpatch
 
-Mud requires several arguments in order to create a new merged branch:
-- `--repo` is the path to the repository you wish to run operations on. 
-- `--base` defines the base branch or tag that the patches will be merged on top of. 
-- `--output` is the name of the new output branch, checked out from the base branch/tag, that the patches will be applied too. 
-- `--patches` is the path to the patches config yaml. 
+The Mud `merge` sub-command itself has several sub-commands. 
+To perform a mudpatch from scratch, use the `merge init` subcommand. 
+This command requires several arguments in order to create a new merged branch:
+- `repo` is the path to the repository you wish to run operations on. 
+- `base` defines the base branch or tag that the patches will be merged on top of. 
+- `output` is the name of the new output branch, checked out from the base branch/tag, that the patches will be applied too. 
+- `patches` is the path to the patches config yaml. 
 
 For example, if you wish to merge the patches defined above (stored in a file called `patches.yaml`) on top of the `1.0.0` release tag of the foobar repo and have the final branch be called `1.0.0+patch1`, then you would issue the following command:
 
 ```bash
-mud --repo foobar --base 1.0.0 --output 1.0.0+patch1 --patches patches.yaml
+mud merge init foobar 1.0.0 1.0.0+patch1 patches.yaml
 ```
 
 ### Merge Conflicts 
